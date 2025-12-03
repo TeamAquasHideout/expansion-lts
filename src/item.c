@@ -235,9 +235,9 @@ bool32 HasAtLeastOneBerry(void)
 
 bool32 HasAtLeastOnePokeBall(void)
 {
-    for (u32 ballId = BALL_STRANGE; ballId < POKEBALL_COUNT; ballId++)
+    for (enum PokeBall ballId = BALL_STRANGE; ballId < POKEBALL_COUNT; ballId++)
     {
-        if (CheckBagHasItem(ballId, 1) == TRUE)
+        if (CheckBagHasItem(gBallItemIds[ballId], 1) == TRUE)
             return TRUE;
     }
     return FALSE;
@@ -409,6 +409,13 @@ bool32 RemoveBagItem(u16 itemId, u16 count)
         return RemovePyramidBagItem(itemId, count);
 
     return BagPocket_RemoveItem(&gBagPockets[GetItemPocket(itemId)], itemId, count);
+}
+
+// Unsafe function: Only use with functions that already check the slot and count are valid
+void RemoveBagItemFromSlot(struct BagPocket *pocket, u16 slotId, u16 count)
+{
+    struct ItemSlot itemSlot = BagPocket_GetSlotData(pocket, slotId);
+    BagPocket_SetSlotItemIdAndCount(pocket, slotId, itemSlot.itemId, itemSlot.quantity - count);
 }
 
 static u8 NONNULL BagPocket_CountUsedItemSlots(struct BagPocket *pocket)

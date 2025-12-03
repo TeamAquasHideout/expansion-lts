@@ -1344,6 +1344,7 @@ static void TearDownBattle(void)
     // Zero out the parties, data in them could potentially carry over
     ZeroPlayerPartyMons();
     ZeroEnemyPartyMons();
+    SetCurrentDifficultyLevel(DIFFICULTY_NORMAL);
 
     FreeMonSpritesGfx();
     FreeBattleSpritesData();
@@ -1564,9 +1565,14 @@ void OpenPokemon(u32 sourceLine, u32 side, u32 species)
     (*partySize)++;
 
     CreateMon(DATA.currentMon, species, 100, 0, TRUE, 0, OT_ID_PRESET, 0);
-    data = MOVE_NONE;
+    // Reset move IDs, but force PP to be non-zero. This is a safeguard against test species that only learn 1 move having test moves with 0 PP
     for (i = 0; i < MAX_MON_MOVES; i++)
+    {
+        data = MOVE_NONE;
         SetMonData(DATA.currentMon, MON_DATA_MOVE1 + i, &data);
+        data = 0x7F; // Max PP possible
+        SetMonData(DATA.currentMon, MON_DATA_PP1 + i, &data);
+    }
     data = 0;
     if (B_FRIENDSHIP_BOOST)
     {
@@ -1676,7 +1682,9 @@ void Level_(u32 sourceLine, u32 level)
     INVALID_IF(level == 0 || level > MAX_LEVEL, "Illegal level: %d", level);
     SetMonData(DATA.currentMon, MON_DATA_LEVEL, &level);
     SetMonData(DATA.currentMon, MON_DATA_EXP, &gExperienceTables[gSpeciesInfo[species].growthRate][level]);
+    gMain.inBattle = TRUE;
     CalculateMonStats(DATA.currentMon);
+    gMain.inBattle = FALSE;
 }
 
 void MaxHP_(u32 sourceLine, u32 maxHP)
@@ -1684,6 +1692,8 @@ void MaxHP_(u32 sourceLine, u32 maxHP)
     INVALID_IF(!DATA.currentMon, "MaxHP outside of PLAYER/OPPONENT");
     INVALID_IF(maxHP == 0, "Illegal max HP: %d", maxHP);
     SetMonData(DATA.currentMon, MON_DATA_MAX_HP, &maxHP);
+    bool32 hyperTrainingFlag = TRUE;
+    SetMonData(DATA.currentMon, MON_DATA_HYPER_TRAINED_HP, &hyperTrainingFlag);
 }
 
 void HP_(u32 sourceLine, u32 hp)
@@ -1699,6 +1709,8 @@ void Attack_(u32 sourceLine, u32 attack)
     INVALID_IF(!DATA.currentMon, "Attack outside of PLAYER/OPPONENT");
     INVALID_IF(attack == 0, "Illegal attack: %d", attack);
     SetMonData(DATA.currentMon, MON_DATA_ATK, &attack);
+    bool32 hyperTrainingFlag = TRUE;
+    SetMonData(DATA.currentMon, MON_DATA_HYPER_TRAINED_ATK, &hyperTrainingFlag);
 }
 
 void Defense_(u32 sourceLine, u32 defense)
@@ -1706,6 +1718,8 @@ void Defense_(u32 sourceLine, u32 defense)
     INVALID_IF(!DATA.currentMon, "Defense outside of PLAYER/OPPONENT");
     INVALID_IF(defense == 0, "Illegal defense: %d", defense);
     SetMonData(DATA.currentMon, MON_DATA_DEF, &defense);
+    bool32 hyperTrainingFlag = TRUE;
+    SetMonData(DATA.currentMon, MON_DATA_HYPER_TRAINED_DEF, &hyperTrainingFlag);
 }
 
 void SpAttack_(u32 sourceLine, u32 spAttack)
@@ -1713,6 +1727,8 @@ void SpAttack_(u32 sourceLine, u32 spAttack)
     INVALID_IF(!DATA.currentMon, "SpAttack outside of PLAYER/OPPONENT");
     INVALID_IF(spAttack == 0, "Illegal special attack: %d", spAttack);
     SetMonData(DATA.currentMon, MON_DATA_SPATK, &spAttack);
+    bool32 hyperTrainingFlag = TRUE;
+    SetMonData(DATA.currentMon, MON_DATA_HYPER_TRAINED_SPATK, &hyperTrainingFlag);
 }
 
 void SpDefense_(u32 sourceLine, u32 spDefense)
@@ -1720,6 +1736,8 @@ void SpDefense_(u32 sourceLine, u32 spDefense)
     INVALID_IF(!DATA.currentMon, "SpDefense outside of PLAYER/OPPONENT");
     INVALID_IF(spDefense == 0, "Illegal special defense: %d", spDefense);
     SetMonData(DATA.currentMon, MON_DATA_SPDEF, &spDefense);
+    bool32 hyperTrainingFlag = TRUE;
+    SetMonData(DATA.currentMon, MON_DATA_HYPER_TRAINED_SPDEF, &hyperTrainingFlag);
 }
 
 void Speed_(u32 sourceLine, u32 speed)
@@ -1727,6 +1745,8 @@ void Speed_(u32 sourceLine, u32 speed)
     INVALID_IF(!DATA.currentMon, "Speed outside of PLAYER/OPPONENT");
     INVALID_IF(speed == 0, "Illegal speed: %d", speed);
     SetMonData(DATA.currentMon, MON_DATA_SPEED, &speed);
+    bool32 hyperTrainingFlag = TRUE;
+    SetMonData(DATA.currentMon, MON_DATA_HYPER_TRAINED_SPEED, &hyperTrainingFlag);
     DATA.hasExplicitSpeeds = TRUE;
     DATA.explicitSpeeds[DATA.currentSide] |= 1 << DATA.currentPartyIndex;
 }
@@ -2112,6 +2132,7 @@ void MoveGetIdAndSlot(s32 battlerId, struct MoveContext *ctx, u32 *moveId, u32 *
                 SetMonData(DATA.currentMon, MON_DATA_PP1 + i, &pp);
                 *moveSlot = i;
                 *moveId = ctx->move;
+                INVALID_IF(GetMovePP(ctx->move) == 0, "%S has 0 PP!", GetMoveName(ctx->move));
                 break;
             }
         }
@@ -2216,7 +2237,7 @@ void Move(u32 sourceLine, struct BattlePokemon *battler, struct MoveContext ctx)
         DATA.battleRecordTurns[DATA.turns][battlerId].secondaryEffect = 1 + ctx.secondaryEffect;
     if (ctx.explicitRNG)
         DATA.battleRecordTurns[DATA.turns][battlerId].rng = ctx.rng;
-    
+
     u32 shellSideArmCount = 0;
     for (u32 i = 0; i < STATE->battlersCount; i++)
     {
@@ -2514,6 +2535,9 @@ void UseItem(u32 sourceLine, struct BattlePokemon *battler, struct ItemContext c
     {
         i = 0;
     }
+
+    if (ctx.explicitRNG)
+        DATA.battleRecordTurns[DATA.turns][battlerId].rng = ctx.rng;
     PushBattlerAction(sourceLine, battlerId, RECORDED_ACTION_TYPE, B_ACTION_USE_ITEM);
     PushBattlerAction(sourceLine, battlerId, RECORDED_ITEM_ID, (ctx.itemId >> 8) & 0xFF);
     PushBattlerAction(sourceLine, battlerId, RECORDED_ITEM_ID, ctx.itemId & 0xFF);

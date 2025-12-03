@@ -3085,8 +3085,8 @@ bool8 ScrCmd_getobjectxy(struct ScriptContext *ctx)
 
 bool8 ScrCmd_checkobjectat(struct ScriptContext *ctx)
 {
-    u32 x = VarGet(ScriptReadHalfword(ctx)) + 7;
-    u32 y = VarGet(ScriptReadHalfword(ctx)) + 7;
+    u32 x = VarGet(ScriptReadHalfword(ctx)) + MAP_OFFSET;
+    u32 y = VarGet(ScriptReadHalfword(ctx)) + MAP_OFFSET;
     u32 varId = ScriptReadHalfword(ctx);
 
     Script_RequestEffects(SCREFF_V1);
@@ -3154,10 +3154,12 @@ bool8 Scrcmd_getobjectfacingdirection(struct ScriptContext *ctx)
     return FALSE;
 }
 
-bool8 ScrFunc_hidefollower(struct ScriptContext *ctx)
+bool8 ScrCmd_hidefollower(struct ScriptContext *ctx)
 {
     bool16 wait = VarGet(ScriptReadHalfword(ctx));
     struct ObjectEvent *obj;
+
+    Script_RequestEffects(SCREFF_V1 | SCREFF_HARDWARE);
 
     if ((obj = ScriptHideFollower()) != NULL && wait)
     {
