@@ -44,7 +44,8 @@ s32 CalcCritChanceStage(u32 battlerAtk, u32 battlerDef, u32 move, bool32 recordA
 s32 CalcCritChanceStageGen1(u32 battlerAtk, u32 battlerDef, u32 move, bool32 recordAbility, u32 abilityAtk, u32 abilityDef, enum ItemHoldEffect holdEffectAtk);
 s32 GetCritHitOdds(s32 critChanceIndex);
 u32 GetTotalAccuracy(u32 battlerAtk, u32 battlerDef, u32 move, u32 atkAbility, u32 defAbility, u32 atkHoldEffect, u32 defHoldEffect);
-u8 GetBattlerTurnOrderNum(u8 battler);
+bool32 HasBattlerActedThisTurn(u32 battler);
+u32 GetBattlerTurnOrderNum(u32 battler);
 bool32 NoAliveMonsForBattlerSide(u32 battler);
 bool32 NoAliveMonsForPlayer(void);
 bool32 NoAliveMonsForEitherParty(void);
@@ -68,6 +69,8 @@ u32 GetNaturePowerMove(u32 battler);
 void StealTargetItem(u8 battlerStealer, u8 battlerItem);
 u8 GetCatchingBattler(void);
 u32 GetHighestStatId(u32 battlerId);
+u32 GetParadoxHighestStatId(u32 battlerId);
+u32 GetParadoxBoostedStatId(u32 battlerId);
 bool32 ProteanTryChangeType(u32 battler, u32 ability, u32 move, u32 moveType);
 bool32 IsMoveNotAllowedInSkyBattles(u32 move);
 bool32 DoSwitchInAbilities(u32 battlerId);
