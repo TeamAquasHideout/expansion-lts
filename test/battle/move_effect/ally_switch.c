@@ -188,7 +188,7 @@ DOUBLE_BATTLE_TEST("Ally Switch doesn't make self-targeting status moves fail")
 DOUBLE_BATTLE_TEST("Ally Switch doesn't increase the Protect-like moves counter (Gen5-8)")
 {
     GIVEN {
-        WITH_CONFIG(CONFIG_ALLY_SWITCH_FAIL_CHANCE, GEN_8);
+        WITH_CONFIG(B_ALLY_SWITCH_FAIL_CHANCE, GEN_8);
         PLAYER(SPECIES_WOBBUFFET);
         PLAYER(SPECIES_WOBBUFFET);
         OPPONENT(SPECIES_WOBBUFFET);
@@ -203,7 +203,7 @@ DOUBLE_BATTLE_TEST("Ally Switch doesn't increase the Protect-like moves counter 
 DOUBLE_BATTLE_TEST("Ally Switch increases the Protect-like moves counter (Gen9+)")
 {
     GIVEN {
-        WITH_CONFIG(CONFIG_ALLY_SWITCH_FAIL_CHANCE, GEN_9);
+        WITH_CONFIG(B_ALLY_SWITCH_FAIL_CHANCE, GEN_9);
         PLAYER(SPECIES_WOBBUFFET);
         PLAYER(SPECIES_WOBBUFFET);
         OPPONENT(SPECIES_WOBBUFFET);
@@ -358,7 +358,7 @@ DOUBLE_BATTLE_TEST("Ally Switch does not update leech seed battler")
     } WHEN {
         TURN { MOVE(opponentLeft, MOVE_LEECH_SEED, target: playerLeft); }
         TURN { MOVE(opponentRight, MOVE_ALLY_SWITCH); }
-        TURN { ; }
+        TURN {}
     } SCENE {
         // turn 1
         MESSAGE("The opposing Bulbasaur used Leech Seed!");
@@ -389,7 +389,7 @@ DOUBLE_BATTLE_TEST("Ally Switch updates attract battler")
     } WHEN {
         TURN { MOVE(playerLeft, MOVE_TACKLE, target: opponentLeft); }
         TURN { MOVE(opponentRight, MOVE_ALLY_SWITCH); }
-        TURN { ; }
+        TURN {}
     } SCENE {
         // turn 1
         MESSAGE("Wobbuffet used Tackle!");

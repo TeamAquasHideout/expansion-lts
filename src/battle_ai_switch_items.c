@@ -298,7 +298,7 @@ static bool32 ShouldSwitchIfHasBadOdds(u32 battler)
 
     // Check if mon gets one shot
     if (maxDamageTaken > gBattleMons[battler].hp
-        && !(gItemsInfo[gBattleMons[battler].item].holdEffect == HOLD_EFFECT_FOCUS_SASH || (!IsMoldBreakerTypeAbility(opposingBattler, gAiLogicData->abilities[opposingBattler]) && GetConfig(CONFIG_STURDY) >= GEN_5 && aiAbility == ABILITY_STURDY)))
+        && !(gItemsInfo[gBattleMons[battler].item].holdEffect == HOLD_EFFECT_FOCUS_SASH || (!IsMoldBreakerTypeAbility(opposingBattler, gAiLogicData->abilities[opposingBattler]) && GetConfig(B_STURDY) >= GEN_5 && aiAbility == ABILITY_STURDY)))
     {
         getsOneShot = TRUE;
     }
@@ -471,7 +471,7 @@ static bool32 FindMonThatAbsorbsOpponentsMove(u32 battler)
 {
     u8 battlerIn1, battlerIn2;
     u8 numAbsorbingAbilities = 0;
-    enum Ability absorbingTypeAbilities[3]; // Array size is maximum number of absorbing abilities for a single type
+    enum Ability absorbingTypeAbilities[8]; // Max needed for type + move property absorbers
     s32 firstId;
     s32 lastId;
     struct Pokemon *party;
@@ -530,42 +530,47 @@ static bool32 FindMonThatAbsorbsOpponentsMove(u32 battler)
     {
         absorbingTypeAbilities[numAbsorbingAbilities++] = ABILITY_FLASH_FIRE;
     }
-    else if (incomingType == TYPE_WATER || (isOpposingBattlerChargingOrInvulnerable && incomingType == TYPE_WATER))
+    if (incomingType == TYPE_WATER || (isOpposingBattlerChargingOrInvulnerable && incomingType == TYPE_WATER))
     {
         absorbingTypeAbilities[numAbsorbingAbilities++] = ABILITY_WATER_ABSORB;
         absorbingTypeAbilities[numAbsorbingAbilities++] = ABILITY_DRY_SKIN;
-        if (GetConfig(CONFIG_REDIRECT_ABILITY_IMMUNITY) >= GEN_5)
+        if (GetConfig(B_REDIRECT_ABILITY_IMMUNITY) >= GEN_5)
             absorbingTypeAbilities[numAbsorbingAbilities++] = ABILITY_STORM_DRAIN;
     }
-    else if (incomingType == TYPE_ELECTRIC || (isOpposingBattlerChargingOrInvulnerable && incomingType == TYPE_ELECTRIC))
+    if (incomingType == TYPE_ELECTRIC || (isOpposingBattlerChargingOrInvulnerable && incomingType == TYPE_ELECTRIC))
     {
         absorbingTypeAbilities[numAbsorbingAbilities++] = ABILITY_VOLT_ABSORB;
         absorbingTypeAbilities[numAbsorbingAbilities++] = ABILITY_MOTOR_DRIVE;
-        if (GetConfig(CONFIG_REDIRECT_ABILITY_IMMUNITY) >= GEN_5)
+        if (GetConfig(B_REDIRECT_ABILITY_IMMUNITY) >= GEN_5)
             absorbingTypeAbilities[numAbsorbingAbilities++] = ABILITY_LIGHTNING_ROD;
     }
-    else if (incomingType == TYPE_GRASS || (isOpposingBattlerChargingOrInvulnerable && incomingType == TYPE_GRASS))
+    if (incomingType == TYPE_GRASS || (isOpposingBattlerChargingOrInvulnerable && incomingType == TYPE_GRASS))
     {
         absorbingTypeAbilities[numAbsorbingAbilities++] = ABILITY_SAP_SIPPER;
     }
-    else if (incomingType == TYPE_GROUND || (isOpposingBattlerChargingOrInvulnerable && incomingType == TYPE_GROUND))
+    if (incomingType == TYPE_GROUND || (isOpposingBattlerChargingOrInvulnerable && incomingType == TYPE_GROUND))
     {
         absorbingTypeAbilities[numAbsorbingAbilities++] = ABILITY_EARTH_EATER;
         absorbingTypeAbilities[numAbsorbingAbilities++] = ABILITY_LEVITATE;
     }
-    else if (IsSoundMove(incomingMove) || (isOpposingBattlerChargingOrInvulnerable && IsSoundMove(incomingMove)))
+    if (IsSoundMove(incomingMove) || (isOpposingBattlerChargingOrInvulnerable && IsSoundMove(incomingMove)))
     {
         absorbingTypeAbilities[numAbsorbingAbilities++] = ABILITY_SOUNDPROOF;
     }
-    else if (IsBallisticMove(incomingMove) || (isOpposingBattlerChargingOrInvulnerable && IsBallisticMove(incomingMove)))
+    if (IsBallisticMove(incomingMove) || (isOpposingBattlerChargingOrInvulnerable && IsBallisticMove(incomingMove)))
     {
         absorbingTypeAbilities[numAbsorbingAbilities++] = ABILITY_BULLETPROOF;
     }
-    else if (IsWindMove(incomingMove) || (isOpposingBattlerChargingOrInvulnerable && IsWindMove(incomingMove)))
+    if (IsWindMove(incomingMove) || (isOpposingBattlerChargingOrInvulnerable && IsWindMove(incomingMove)))
     {
         absorbingTypeAbilities[numAbsorbingAbilities++] = ABILITY_WIND_RIDER;
     }
-    else
+    if (IsPowderMove(incomingMove) || (isOpposingBattlerChargingOrInvulnerable && IsPowderMove(incomingMove)))
+    {
+        if (GetConfig(B_POWDER_OVERCOAT) >= GEN_6)
+            absorbingTypeAbilities[numAbsorbingAbilities++] = ABILITY_OVERCOAT;
+    }
+    if (numAbsorbingAbilities == 0)
     {
         return FALSE;
     }
@@ -715,7 +720,7 @@ static bool32 ShouldSwitchIfBadlyStatused(u32 battler)
                 && gAiLogicData->abilities[opposingBattler] != ABILITY_UNAWARE
                 && gAiLogicData->abilities[opposingBattler] != ABILITY_KEEN_EYE
                 && gAiLogicData->abilities[opposingBattler] != ABILITY_MINDS_EYE
-                && (GetConfig(CONFIG_ILLUMINATE_EFFECT) >= GEN_9 && gAiLogicData->abilities[opposingBattler] != ABILITY_ILLUMINATE)
+                && (GetConfig(B_ILLUMINATE_EFFECT) >= GEN_9 && gAiLogicData->abilities[opposingBattler] != ABILITY_ILLUMINATE)
                 && !gBattleMons[battler].volatiles.foresight
                 && !gBattleMons[battler].volatiles.miracleEye)
                 switchMon = FALSE;
@@ -1091,6 +1096,23 @@ static bool32 ShouldSwitchIfAttackingStatsLowered(u32 battler)
     return FALSE;
 }
 
+static bool32 CanBattlerConsiderSwitch(u32 battler)
+{
+    if (gBattleMons[battler].volatiles.wrapped)
+        return FALSE;
+    if (gBattleMons[battler].volatiles.escapePrevention)
+        return FALSE;
+    if (gBattleMons[battler].volatiles.root)
+        return FALSE;
+    if (IsAbilityPreventingEscape(battler))
+        return FALSE;
+    if (gBattleStruct->battlerState[battler].commanderSpecies)
+        return FALSE;
+    if (gBattleTypeFlags & BATTLE_TYPE_ARENA)
+        return FALSE;
+    return TRUE;
+}
+
 bool32 ShouldSwitch(u32 battler)
 {
     u32 battlerIn1, battlerIn2;
@@ -1100,15 +1122,7 @@ bool32 ShouldSwitch(u32 battler)
     s32 i;
     s32 availableToSwitch;
 
-    if (gBattleMons[battler].volatiles.wrapped)
-        return FALSE;
-    if (gBattleMons[battler].volatiles.escapePrevention)
-        return FALSE;
-    if (gBattleMons[battler].volatiles.root)
-        return FALSE;
-    if (IsAbilityPreventingEscape(battler))
-        return FALSE;
-    if (gBattleTypeFlags & BATTLE_TYPE_ARENA)
+    if (!CanBattlerConsiderSwitch(battler))
         return FALSE;
 
     // Sequence Switching AI never switches mid-battle
@@ -1251,15 +1265,7 @@ void ModifySwitchAfterMoveScoring(u32 battler)
     s32 i;
     s32 availableToSwitch;
 
-    if (gBattleMons[battler].volatiles.wrapped)
-        return;
-    if (gBattleMons[battler].volatiles.escapePrevention)
-        return;
-    if (gBattleMons[battler].volatiles.root)
-        return;
-    if (IsAbilityPreventingEscape(battler))
-        return;
-    if (gBattleTypeFlags & BATTLE_TYPE_ARENA)
+    if (!CanBattlerConsiderSwitch(battler))
         return;
 
     // Sequence Switching AI never switches mid-battle
@@ -1757,7 +1763,7 @@ static u32 GetSwitchinStatusDamage(u32 battler)
     {
         if (status & STATUS1_BURN)
         {
-            if (GetConfig(CONFIG_BURN_DAMAGE) >= GEN_7)
+            if (GetConfig(B_BURN_DAMAGE) >= GEN_7 || GetConfig(B_BURN_DAMAGE) == GEN_1)
                 statusDamage = maxHP / 16;
             else
                 statusDamage = maxHP / 8;
@@ -1768,7 +1774,7 @@ static u32 GetSwitchinStatusDamage(u32 battler)
         }
         else if (status & STATUS1_FROSTBITE)
         {
-            if (GetConfig(CONFIG_BURN_DAMAGE) >= GEN_7)
+            if (GetConfig(B_BURN_DAMAGE) >= GEN_7 || GetConfig(B_BURN_DAMAGE) == GEN_1)
                 statusDamage = maxHP / 16;
             else
                 statusDamage = maxHP / 8;
@@ -1852,7 +1858,7 @@ static u32 GetSwitchinHitsToKO(s32 damageTaken, u32 battler)
         currentHP = currentHP - damageTaken;
 
         // One shot prevention effects
-        if (damageTaken >= maxHP && startingHP == maxHP && (heldItemEffect == HOLD_EFFECT_FOCUS_SASH || (!opponentCanBreakMold && GetConfig(CONFIG_STURDY) >= GEN_5 && ability == ABILITY_STURDY)) && hitsToKO < 1)
+        if (damageTaken >= maxHP && startingHP == maxHP && (heldItemEffect == HOLD_EFFECT_FOCUS_SASH || (!opponentCanBreakMold && GetConfig(B_STURDY) >= GEN_5 && ability == ABILITY_STURDY)) && hitsToKO < 1)
             currentHP = 1;
 
         // If mon is still alive, apply weather impact first, as it might KO the mon before it can heal with its item (order is weather -> item -> status)
@@ -2044,7 +2050,7 @@ static s32 GetMaxPriorityDamagePlayerCouldDealToSwitchin(u32 battler, u32 opposi
 
 static bool32 CanAbilityTrapOpponent(enum Ability ability, u32 opponent)
 {
-    if ((B_GHOSTS_ESCAPE >= GEN_6 && IS_BATTLER_OF_TYPE(opponent, TYPE_GHOST)))
+    if ((GetConfig(B_GHOSTS_ESCAPE) >= GEN_6 && IS_BATTLER_OF_TYPE(opponent, TYPE_GHOST)))
         return FALSE;
     else if (ability == ABILITY_SHADOW_TAG)
     {
