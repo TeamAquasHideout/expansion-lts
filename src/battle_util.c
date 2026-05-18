@@ -66,6 +66,7 @@ static bool32 IsPowderMoveBlocked(struct BattleContext *ctx);
 const u8 *AbsorbedByDrainHpAbility(enum BattlerId battlerDef);
 const u8 *AbsorbedByStatIncreaseAbility(enum BattlerId battlerDef, enum Ability abilityDef, enum Stat statId, u32 statAmount);
 const u8 *AbsorbedByFlashFire(enum BattlerId battlerDef);
+static bool32 IsCriticalHit(struct BattleContext *ctx);
 
 ARM_FUNC NOINLINE static uq4_12_t PercentToUQ4_12(u32 percent);
 ARM_FUNC NOINLINE static uq4_12_t PercentToUQ4_12_Floored(u32 percent);
@@ -4073,12 +4074,17 @@ u32 AbilityBattleEffects(enum AbilityEffect caseID, enum BattlerId battler, enum
              && !IsBattlerAlive(gBattlerTarget)
              && IsBattlerAlive(gBattlerAttacker))
             {
+                s32 damage = gBattleStruct->moveDamage[gBattlerTarget];
+
                 // Prevent Innards Out effect if Future Sight user is currently not on field
                 if (IsFutureSightAttackerInParty(gBattlerAttacker, gBattlerTarget, gCurrentMove))
                     break;
 
+                if (gBattleStruct->innardsOutHpLost[gBattlerTarget] != 0)
+                    damage = gBattleStruct->innardsOutHpLost[gBattlerTarget];
+
                 gBattleScripting.battler = gBattlerTarget;
-                SetPassiveDamageAmount(gBattlerAttacker, gBattleStruct->moveDamage[gBattlerTarget]);
+                SetPassiveDamageAmount(gBattlerAttacker, damage);
                 BattleScriptCall(BattleScript_AftermathDmg);
                 effect++;
             }
@@ -4303,11 +4309,13 @@ u32 AbilityBattleEffects(enum AbilityEffect caseID, enum BattlerId battler, enum
             }
             break;
         case ABILITY_TOXIC_DEBRIS:
+        {
+            enum BattlerId toxicSpikesTarget = BATTLE_OPPOSITE(gBattlerTarget);
             if (!gBattleStruct->isSkyBattle
              && !gBattleStruct->unableToUseMove
              && IsBattleMovePhysical(gCurrentMove)
              && IsBattlerTurnDamaged(gBattlerTarget, EXCLUDING_SUBSTITUTES)
-             && (gSideTimers[GetBattlerSide(gBattlerAttacker)].toxicSpikesAmount != 2))
+             && (gSideTimers[GetBattlerSide(toxicSpikesTarget)].toxicSpikesAmount != 2))
             {
                 SaveBattlerTarget(gBattlerTarget);
                 SaveBattlerAttacker(gBattlerAttacker);
@@ -4317,6 +4325,7 @@ u32 AbilityBattleEffects(enum AbilityEffect caseID, enum BattlerId battler, enum
                 effect++;
             }
             break;
+        }
         default:
             break;
         }
@@ -4727,6 +4736,13 @@ u32 AbilityBattleEffects(enum AbilityEffect caseID, enum BattlerId battler, enum
     case ABILITYEFFECT_NEUTRALIZINGGAS:
         if (ability == ABILITY_NEUTRALIZING_GAS && !gBattleMons[battler].volatiles.neutralizingGas)
         {
+            for (enum BattlerId battlerDef = B_BATTLER_0; battlerDef < gBattlersCount; battlerDef++)
+            {
+                if (battler == battlerDef || GetBattlerHoldEffectIgnoreAbility(battlerDef) == HOLD_EFFECT_ABILITY_SHIELD)
+                    continue;
+                RemoveRuinAbilityFlags(battlerDef);
+            }
+
             gBattleMons[battler].volatiles.neutralizingGas = TRUE;
             gBattlerAbility = battler;
             gBattleCommunication[MULTISTRING_CHOOSER] = B_MSG_SWITCHIN_NEUTRALIZING_GAS;
@@ -6369,7 +6385,8 @@ static inline u32 CalcMoveBasePower(struct BattleContext *ctx)
             basePower *= 2;
         break;
     case EFFECT_WEATHER_BALL:
-        if (ctx->weather & B_WEATHER_ANY)
+        if (ctx->weather & B_WEATHER_ANY
+         && !((ctx->weather & (B_WEATHER_SUN | B_WEATHER_RAIN)) && ctx->holdEffectAtk == HOLD_EFFECT_UTILITY_UMBRELLA))
             basePower *= 2;
         break;
     case EFFECT_PURSUIT:
@@ -6857,17 +6874,8 @@ static inline u32 CalcMoveBasePowerAfterModifiers(struct BattleContext *ctx)
 
 static bool32 IsRuinStatusActive(u32 fieldEffect)
 {
-    bool32 isNeutralizingGasOnField = IsNeutralizingGasOnField();
     for (enum BattlerId battler = 0; battler < gBattlersCount; battler++)
     {
-        // Mold Breaker doesn't ignore Ruin field status but Gastro Acid and Neutralizing Gas do
-        if (gBattleMons[battler].volatiles.gastroAcid)
-            continue;
-        if (GetBattlerHoldEffectIgnoreAbility(battler) != HOLD_EFFECT_ABILITY_SHIELD
-         && isNeutralizingGasOnField
-         && gBattleMons[battler].ability != ABILITY_NEUTRALIZING_GAS)
-            continue;
-
         if (GetBattlerVolatile(battler, fieldEffect))
             return TRUE;
     }
@@ -7137,10 +7145,10 @@ static inline u32 CalcAttackStat(struct BattleContext *ctx)
     }
 
     // Ruin field effects
-    if (IsBattleMoveSpecial(move) && !gBattleMons[ctx->battlerAtk].volatiles.vesselOfRuin && IsRuinStatusActive(VOLATILE_VESSEL_OF_RUIN))
+    if (IsBattleMoveSpecial(move) && ctx->abilityAtk != ABILITY_VESSEL_OF_RUIN && IsRuinStatusActive(VOLATILE_VESSEL_OF_RUIN))
         modifier = uq4_12_multiply_half_down(modifier, UQ_4_12(0.75));
 
-    if (IsBattleMovePhysical(move) && !gBattleMons[ctx->battlerAtk].volatiles.tabletsOfRuin && IsRuinStatusActive(VOLATILE_TABLETS_OF_RUIN))
+    if (IsBattleMovePhysical(move) && ctx->abilityAtk != ABILITY_TABLETS_OF_RUIN && IsRuinStatusActive(VOLATILE_TABLETS_OF_RUIN))
         modifier = uq4_12_multiply_half_down(modifier, UQ_4_12(0.75));
 
     // attacker's hold effect
@@ -7325,10 +7333,10 @@ static inline u32 CalcDefenseStat(struct BattleContext *ctx)
     }
 
     // Ruin field effects
-    if (usesDefStat && !gBattleMons[ctx->battlerDef].volatiles.swordOfRuin && IsRuinStatusActive(VOLATILE_SWORD_OF_RUIN))
+    if (usesDefStat && ctx->abilityDef != ABILITY_SWORD_OF_RUIN && IsRuinStatusActive(VOLATILE_SWORD_OF_RUIN))
         modifier = uq4_12_multiply_half_down(modifier, UQ_4_12(0.75));
 
-    if (!usesDefStat && !gBattleMons[ctx->battlerDef].volatiles.beadsOfRuin && IsRuinStatusActive(VOLATILE_BEADS_OF_RUIN))
+    if (!usesDefStat && ctx->abilityDef != ABILITY_BEADS_OF_RUIN && IsRuinStatusActive(VOLATILE_BEADS_OF_RUIN))
         modifier = uq4_12_multiply_half_down(modifier, UQ_4_12(0.75));
 
     // target's hold effects
@@ -7875,6 +7883,8 @@ s32 DoFixedDamageMoveCalc(struct BattleContext *ctx)
 
 static inline s32 DoMoveDamageCalc(struct BattleContext *ctx)
 {
+    ctx->typeEffectivenessModifier = CalcTypeEffectivenessMultiplier(ctx);
+
     if (ctx->typeEffectivenessModifier == UQ_4_12(0.0))
         return 0;
 
@@ -7882,60 +7892,40 @@ static inline s32 DoMoveDamageCalc(struct BattleContext *ctx)
     if (dmg != INT32_MAX)
         return dmg;
 
+    ctx->isCrit = IsCriticalHit(ctx);
     return DoMoveDamageCalcVars(ctx);
-}
-
-static inline s32 DoFutureSightAttackDamageCalcVars(struct BattleContext *ctx)
-{
-    s32 dmg;
-    u32 userFinalAttack;
-    u32 targetFinalDefense;
-    enum BattlerId battlerAtk = ctx->battlerAtk;
-    enum BattlerId battlerDef = ctx->battlerDef;
-    enum Move move = ctx->move;
-    enum Type moveType = ctx->moveType;
-
-    struct Pokemon *party = GetBattlerParty(battlerAtk);
-    struct Pokemon *partyMon = &party[gBattleStruct->futureSight[battlerDef].partyIndex];
-    u32 partyMonLevel = GetMonData(partyMon, MON_DATA_LEVEL);
-    u32 partyMonSpecies = GetMonData(partyMon, MON_DATA_SPECIES);
-    gBattleMovePower = GetMovePower(move);
-
-    if (IsBattleMovePhysical(move))
-        userFinalAttack = GetMonData(partyMon, MON_DATA_ATK);
-    else
-        userFinalAttack = GetMonData(partyMon, MON_DATA_SPATK);
-
-    targetFinalDefense = CalcDefenseStat(ctx);
-    dmg = CalculateBaseDamage(gBattleMovePower, userFinalAttack, partyMonLevel, targetFinalDefense);
-
-    DAMAGE_APPLY_MODIFIER(GetCriticalModifier(ctx->isCrit));
-
-    if (ctx->randomFactor)
-    {
-        dmg *= DMG_ROLL_PERCENT_HI - RandomUniform(RNG_DAMAGE_MODIFIER, 0, DMG_ROLL_PERCENT_HI - DMG_ROLL_PERCENT_LO);
-        dmg /= 100;
-    }
-
-    // Same type attack bonus
-    if (GetSpeciesType(partyMonSpecies, 0) == moveType || GetSpeciesType(partyMonSpecies, 1) == moveType)
-        DAMAGE_APPLY_MODIFIER(UQ_4_12(1.5));
-    else
-        DAMAGE_APPLY_MODIFIER(UQ_4_12(1.0));
-    DAMAGE_APPLY_MODIFIER(ctx->typeEffectivenessModifier);
-
-    if (dmg == 0)
-        dmg = 1;
-
-    return dmg;
 }
 
 static inline s32 DoFutureSightAttackDamageCalc(struct BattleContext *ctx)
 {
+    struct Pokemon *party = GetBattlerParty(ctx->battlerAtk);
+    struct Pokemon *partyMon = &party[gBattleStruct->futureSight[ctx->battlerDef].partyIndex];
+    struct BattlePokemon *savedBattleMons = AllocSaveBattleMons();
+
+    bool32 vesselOrRuin = gBattleMons[ctx->battlerAtk].volatiles.vesselOfRuin;
+    bool32 tabletsOfRuin = gBattleMons[ctx->battlerAtk].volatiles.tabletsOfRuin;
+    bool32 swordOfRuin = gBattleMons[ctx->battlerAtk].volatiles.swordOfRuin;
+    bool32 beadsOfRuin = gBattleMons[ctx->battlerAtk].volatiles.beadsOfRuin;
+
+    PokemonToBattleMon(partyMon , &gBattleMons[ctx->battlerAtk]);
+
+    gBattleMons[ctx->battlerAtk].volatiles.vesselOfRuin = vesselOrRuin;
+    gBattleMons[ctx->battlerAtk].volatiles.tabletsOfRuin = tabletsOfRuin;
+    gBattleMons[ctx->battlerAtk].volatiles.swordOfRuin = swordOfRuin;
+    gBattleMons[ctx->battlerAtk].volatiles.beadsOfRuin = beadsOfRuin;
+
+    ctx->abilityAtk = ABILITY_NONE;
+    ctx->holdEffectAtk = HOLD_EFFECT_NONE;
+    ctx->typeEffectivenessModifier = CalcTypeEffectivenessMultiplier(ctx);
+    ctx->isCrit = IsCriticalHit(ctx);
+
     if (ctx->typeEffectivenessModifier == UQ_4_12(0.0))
         return 0;
 
-    return DoFutureSightAttackDamageCalcVars(ctx);
+    s32 dmg = DoMoveDamageCalc(ctx);
+
+    FreeRestoreBattleMons(savedBattleMons);
+    return dmg;
 }
 
 bool32 IsFutureSightAttackerInParty(enum BattlerId battlerAtk, enum BattlerId battlerDef, enum Move move)
@@ -8215,9 +8205,6 @@ s32 CalculateMoveDamage(struct BattleContext *ctx)
     ctx->abilityDef = GetBattlerAbility(ctx->battlerDef);
     ctx->holdEffectAtk = GetBattlerHoldEffect(ctx->battlerAtk);
     ctx->holdEffectDef = GetBattlerHoldEffect(ctx->battlerDef);
-
-    ctx->typeEffectivenessModifier = CalcTypeEffectivenessMultiplier(ctx);
-    ctx->isCrit = IsCriticalHit(ctx);
 
     if (IsFutureSightAttackerInParty(ctx->battlerAtk, ctx->battlerDef, ctx->move))
         damage = DoFutureSightAttackDamageCalc(ctx);
@@ -9940,6 +9927,7 @@ void ClearDamageCalcResults(void)
     for (enum BattlerId battler = 0; battler < MAX_BATTLERS_COUNT; battler++)
     {
         gBattleStruct->moveDamage[battler] = 0;
+        gBattleStruct->innardsOutHpLost[battler] = 0;
         gBattleStruct->moveResultFlags[battler] = 0;
         gBattleStruct->passiveHpUpdate[battler] = 0;
         gSpecialStatuses[battler].criticalHit = FALSE;
@@ -10351,6 +10339,7 @@ bool32 CanMoveSkipAccuracyCalc(enum BattlerId battlerAtk, enum BattlerId battler
 {
     bool32 effect = FALSE;
     enum Ability ability = ABILITY_NONE;
+    enum BattlerId abilityBattler = battlerAtk;
     enum BattleMoveEffects moveEffect = GetMoveEffect(move);
 
     if (gBattleMons[battlerAtk].volatiles.battlerWithSureHit == battlerDef + 1
@@ -10366,6 +10355,7 @@ bool32 CanMoveSkipAccuracyCalc(enum BattlerId battlerAtk, enum BattlerId battler
     {
         effect = TRUE;
         ability = ABILITY_NO_GUARD;
+        abilityBattler = battlerAtk;
     }
     // If the target has the ability No Guard and they aren't involved in a Sky Drop or the current move isn't Sky Drop, move hits.
     else if (abilityDef == ABILITY_NO_GUARD
@@ -10373,6 +10363,7 @@ bool32 CanMoveSkipAccuracyCalc(enum BattlerId battlerAtk, enum BattlerId battler
     {
         effect = TRUE;
         ability = ABILITY_NO_GUARD;
+        abilityBattler = battlerDef;
     }
     // If the target is under the effects of Telekinesis, and the move isn't a OH-KO move, move hits.
     else if (gBattleMons[battlerDef].volatiles.telekinesis
@@ -10412,7 +10403,7 @@ bool32 CanMoveSkipAccuracyCalc(enum BattlerId battlerAtk, enum BattlerId battler
     }
 
     if (ability != ABILITY_NONE && option == RUN_SCRIPT)
-        RecordAbilityBattle(battlerAtk, ABILITY_NO_GUARD);
+        RecordAbilityBattle(abilityBattler, ability);
 
     return effect;
 }
@@ -10716,6 +10707,27 @@ void RemoveAbilityFlags(enum BattlerId battler)
     case ABILITY_FLASH_FIRE:
         gBattleMons[battler].volatiles.flashFireBoosted = FALSE;
         break;
+    case ABILITY_VESSEL_OF_RUIN:
+        gBattleMons[battler].volatiles.vesselOfRuin = FALSE;
+        break;
+    case ABILITY_TABLETS_OF_RUIN:
+        gBattleMons[battler].volatiles.tabletsOfRuin = FALSE;
+        break;
+    case ABILITY_SWORD_OF_RUIN:
+        gBattleMons[battler].volatiles.swordOfRuin = FALSE;
+        break;
+    case ABILITY_BEADS_OF_RUIN:
+        gBattleMons[battler].volatiles.beadsOfRuin = FALSE;
+        break;
+    default:
+       break;
+    }
+}
+
+void RemoveRuinAbilityFlags(enum BattlerId battler)
+{
+    switch (GetBattlerAbility(battler))
+    {
     case ABILITY_VESSEL_OF_RUIN:
         gBattleMons[battler].volatiles.vesselOfRuin = FALSE;
         break;

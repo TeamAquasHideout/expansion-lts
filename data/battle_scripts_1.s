@@ -2243,6 +2243,13 @@ BattleScript_MoveMissed::
 	waitmessage B_WAIT_TIME_LONG
 	goto BattleScript_MoveEnd
 
+BattleScript_TargetAvoidsAttackEnd::
+	pause B_WAIT_TIME_SHORT
+	setbyte cMULTISTRING_CHOOSER, B_MSG_AVOIDED_ATK
+	printfromtable gMissStringIds
+	waitmessage B_WAIT_TIME_LONG
+	goto BattleScript_MoveEnd
+
 BattleScript_TerrainPreventsEnd2::
 	pause B_WAIT_TIME_SHORT
 	printfromtable gTerrainPreventsStringIds
@@ -2372,12 +2379,15 @@ BattleScript_MaxHp50Recoil::
 
 BattleScript_EffectDreamEater::
 	attackcanceler
-.if B_DREAM_EATER_SUBSTITUTE < GEN_5
-	jumpifsubstituteblocks BattleScript_DoesntAffectTargetAtkString
-.endif
+	jumpifgenconfiglowerthan CONFIG_B_DREAM_EATER_SUBSTITUTE, GEN_5, BattleScript_DreamEaterSubstituteCheck
+BattleScript_DreamEaterSleepCheck:
 	jumpifstatus BS_TARGET, STATUS1_SLEEP, BattleScript_HitFromAccCheck
 	jumpifability BS_TARGET, ABILITY_COMATOSE, BattleScript_HitFromAccCheck
 	goto BattleScript_DoesntAffectTargetAtkString
+
+BattleScript_DreamEaterSubstituteCheck:
+	jumpifsubstituteblocks BattleScript_DoesntAffectTargetAtkString
+	goto BattleScript_DreamEaterSleepCheck
 
 BattleScript_EffectAttackUp::
 	setstatchanger STAT_ATK, 1, FALSE
@@ -7724,7 +7734,7 @@ BattleScript_EjectPackActivate_End2::
 	end2
 
 BattleScript_EjectPackActivates::
-	jumpifcantswitch BS_SCRIPTING, BattleScript_EjectButtonEnd
+	jumpifcantswitch SWITCH_IGNORE_ESCAPE_PREVENTION | BS_SCRIPTING, BattleScript_EjectButtonEnd
 	goto BattleScript_EjectPackActivate_Ret
 
 BattleScript_DoesntAffectTargetAtkString::
@@ -7775,23 +7785,19 @@ BattleScript_PastelVeilEnd:
 	return
 
 BattleScript_NeutralizingGasExits::
-	saveattacker
 	savetarget
 	pause B_WAIT_TIME_SHORT
 	printstring STRINGID_NEUTRALIZINGGASOVER
 	waitmessage B_WAIT_TIME_LONG
-	setbyte gBattlerAttacker, 0
+	setbyte gBattlerTarget, 0
 	sortbattlers
 BattleScript_NeutralizingGasExitsLoop:
-	copyarraywithindex gBattlerTarget, gBattlersBySpeed, gBattlerAttacker, 1
-	jumpifabilitycantbereactivated BS_TARGET, BattleScript_NeutralizingGasExitsLoopIncrement
-	saveattacker
-	switchinabilities BS_TARGET
-	restoreattacker
+	copyarraywithindex gEffectBattler, gBattlersBySpeed, gBattlerTarget, 1
+	jumpifabilitycantbereactivated BS_EFFECT_BATTLER, BattleScript_NeutralizingGasExitsLoopIncrement
+	switchinabilities BS_EFFECT_BATTLER
 BattleScript_NeutralizingGasExitsLoopIncrement:
-	addbyte gBattlerAttacker, 1
-	jumpifbytenotequal gBattlerAttacker, gBattlersCount, BattleScript_NeutralizingGasExitsLoop
-	restoreattacker
+	addbyte gBattlerTarget, 1
+	jumpifbytenotequal gBattlerTarget, gBattlersCount, BattleScript_NeutralizingGasExitsLoop
 	restoretarget
 	return
 

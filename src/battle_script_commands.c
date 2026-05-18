@@ -870,8 +870,8 @@ static const struct WindowTemplate sUnusedWinTemplate =
     .baseBlock = 0x3F
 };
 
-static const u16 sLevelUpBanner_Pal[] = INCBIN_U16("graphics/battle_interface/level_up_banner.gbapal");
-static const u32 sLevelUpBanner_Gfx[] = INCBIN_U32("graphics/battle_interface/level_up_banner.4bpp.smol");
+static const u16 sLevelUpBanner_Pal[] = INCGFX_U16("graphics/battle_interface/level_up_banner.png", ".gbapal");
+static const u32 sLevelUpBanner_Gfx[] = INCGFX_U32("graphics/battle_interface/level_up_banner.png", ".4bpp.smol");
 
 static const struct OamData sOamData_MonIconOnLvlUpBanner =
 {
@@ -1214,7 +1214,9 @@ static void AccuracyCheck(bool32 recalcDragonDarts, const u8 *nextInstr, const u
         }
         else
         {
-            gBattlescriptCurrInstr = failInstr;
+            gBattlescriptCurrInstr = failInstr == BattleScript_ButItFailed
+                ? BattleScript_TargetAvoidsAttackEnd
+                : failInstr;
         }
 
         if (gBattleStruct->moveResultFlags[gBattlerTarget] & (MOVE_RESULT_ONE_HIT_KO_NO_AFFECT | MOVE_RESULT_ONE_HIT_KO_STURDY))
@@ -1413,37 +1415,22 @@ static inline bool32 DoesBattlerNegateDamage(enum BattlerId battler)
     return FALSE;
 }
 
-static u32 UpdateEffectivenessResultFlagsForDoubleSpreadMoves(u32 resultFlags)
+static u32 UpdateEffectivenessResultFlagsForDoubleSpreadMoves(u32 resultFlags, u32 moveTarget)
 {
-    // Only play the "best" sound
-    for (u32 sound = 0; sound < 3; sound++)
+    u32 ret = resultFlags;
+    for (u32 battlerDef = 0; battlerDef < gBattlersCount; battlerDef++)
     {
-        for (enum BattlerId battlerDef = 0; battlerDef < gBattlersCount; battlerDef++)
-        {
-            if (IsBattlerInvalidForSpreadMove(gBattlerAttacker, battlerDef))
+        if (IsBattlerInvalidForSpreadMove(gBattlerAttacker, battlerDef))
                 continue;
-
-            switch (sound)
-            {
-            case 0:
-                if (gBattleStruct->moveResultFlags[battlerDef] & MOVE_RESULT_SUPER_EFFECTIVE
-                 && !DoesBattlerNegateDamage(battlerDef))
-                    return gBattleStruct->moveResultFlags[battlerDef];
-                break;
-            case 1:
-                if (gBattleStruct->moveResultFlags[battlerDef] & MOVE_RESULT_NOT_VERY_EFFECTIVE
-                 && !DoesBattlerNegateDamage(battlerDef))
-                    return gBattleStruct->moveResultFlags[battlerDef];
-                break;
-            case 2:
-                if (DoesBattlerNegateDamage(battlerDef))
-                    return 0; //Normal effectiveness
-                return gBattleStruct->moveResultFlags[battlerDef];
-            }
-        }
+        
+        if (DoesBattlerNegateDamage(battlerDef))
+            continue; // doesnt contribute to SE
+        if (!(gBattleStruct->moveResultFlags[battlerDef] & MOVE_RESULT_NOT_VERY_EFFECTIVE))
+            ret &= ~MOVE_RESULT_NOT_VERY_EFFECTIVE; // any battler with 1x or better effectiveness removes NVE sound
+        if (gBattleStruct->moveResultFlags[battlerDef] & MOVE_RESULT_SUPER_EFFECTIVE)
+            ret |= MOVE_RESULT_SUPER_EFFECTIVE; // any super effective result will play SE_SUPER_EFFECTIVE
     }
-
-    return resultFlags;
+    return ret;
 }
 
 static inline bool32 TryStrongWindsWeakenAttack(enum BattlerId battlerDef, enum Type moveType)
@@ -1548,7 +1535,7 @@ static void Cmd_attackanimation(void)
     enum BattleMoveEffects effect = GetMoveEffect(gCurrentMove);
 
     if (IsDoubleSpreadMove())
-        moveResultFlags = UpdateEffectivenessResultFlagsForDoubleSpreadMoves(gBattleStruct->moveResultFlags[gBattlerTarget]);
+        moveResultFlags = UpdateEffectivenessResultFlagsForDoubleSpreadMoves(gBattleStruct->moveResultFlags[gBattlerTarget], moveTarget);
 
     bool32 isAnimDisabled = (gHitMarker & (HITMARKER_NO_ANIMATIONS | HITMARKER_DISABLE_ANIMATION)
                           || gBattleStruct->attackAnimPlayed);
@@ -1803,10 +1790,14 @@ static void MoveDamageDataHpUpdate(enum BattlerId battler, u32 scriptBattler, co
         }
         else
         {
+            u16 hpBefore;
+            u16 hpLost;
+
             gBideDmg[battler] += gBattleStruct->moveDamage[battler];
             gBideTarget[battler] = gBattlerAttacker;
 
             // Deal damage to the battler
+            hpBefore = gBattleMons[battler].hp;
             if (gBattleMons[battler].hp > gBattleStruct->moveDamage[battler])
             {
                 if (GetMoveEffect(gCurrentMove) == EFFECT_OHKO && gBattleStruct->moveResultFlags[gBattlerTarget] & MOVE_RESULT_FOE_HUNG_ON)
@@ -1820,6 +1811,11 @@ static void MoveDamageDataHpUpdate(enum BattlerId battler, u32 scriptBattler, co
                 gBattleStruct->moveDamage[battler] = gBattleMons[battler].hp;
                 gBattleMons[battler].hp = 0;
             }
+
+            hpLost = hpBefore - gBattleMons[battler].hp;
+            if (hpLost != 0)
+                gBattleStruct->innardsOutHpLost[battler] += hpLost;
+
             gProtectStructs[battler].assuranceDoubled = TRUE;
             gProtectStructs[battler].revengeDoubled |= 1u << gBattlerAttacker;
 
@@ -1912,7 +1908,8 @@ static void Cmd_effectivenesssound(void)
             gBattlescriptCurrInstr = cmd->nextInstr;
             return;
         }
-        moveResultFlags = UpdateEffectivenessResultFlagsForDoubleSpreadMoves(gBattleStruct->moveResultFlags[gBattlerTarget]);
+        moveResultFlags = UpdateEffectivenessResultFlagsForDoubleSpreadMoves(gBattleStruct->moveResultFlags[gBattlerTarget],
+                                                                  GetBattlerMoveTargetType(gBattlerAttacker, gCurrentMove));
     }
     else if (!IsBattlerUnaffectedByMove(gBattlerTarget) && DoesBattlerNegateDamage(gBattlerTarget))
         moveResultFlags = 0;
@@ -1922,10 +1919,18 @@ static void Cmd_effectivenesssound(void)
         switch (moveResultFlags & ~MOVE_RESULT_MISSED)
         {
         case MOVE_RESULT_SUPER_EFFECTIVE:
+            #if TESTING
+            if (gTestRunnerEnabled)
+                TestRunner_Battle_RecordEffectivenessSound(gBattlerTarget, SE_SUPER_EFFECTIVE);
+            #endif
             BtlController_EmitPlaySE(gBattlerTarget, B_COMM_TO_CONTROLLER, SE_SUPER_EFFECTIVE);
             MarkBattlerForControllerExec(gBattlerTarget);
             break;
         case MOVE_RESULT_NOT_VERY_EFFECTIVE:
+            #if TESTING
+            if (gTestRunnerEnabled)
+                TestRunner_Battle_RecordEffectivenessSound(gBattlerTarget, SE_NOT_EFFECTIVE);
+            #endif
             BtlController_EmitPlaySE(gBattlerTarget, B_COMM_TO_CONTROLLER, SE_NOT_EFFECTIVE);
             MarkBattlerForControllerExec(gBattlerTarget);
             break;
@@ -1940,16 +1945,28 @@ static void Cmd_effectivenesssound(void)
         default:
             if (moveResultFlags & MOVE_RESULT_SUPER_EFFECTIVE)
             {
+                #if TESTING
+                if (gTestRunnerEnabled)
+                    TestRunner_Battle_RecordEffectivenessSound(gBattlerTarget, SE_SUPER_EFFECTIVE);
+                #endif
                 BtlController_EmitPlaySE(gBattlerTarget, B_COMM_TO_CONTROLLER, SE_SUPER_EFFECTIVE);
                 MarkBattlerForControllerExec(gBattlerTarget);
             }
             else if (moveResultFlags & MOVE_RESULT_NOT_VERY_EFFECTIVE)
             {
+                #if TESTING
+                if (gTestRunnerEnabled)
+                    TestRunner_Battle_RecordEffectivenessSound(gBattlerTarget, SE_NOT_EFFECTIVE);
+                #endif
                 BtlController_EmitPlaySE(gBattlerTarget, B_COMM_TO_CONTROLLER, SE_NOT_EFFECTIVE);
                 MarkBattlerForControllerExec(gBattlerTarget);
             }
             else if (!(moveResultFlags & (MOVE_RESULT_DOESNT_AFFECT_FOE | MOVE_RESULT_FAILED)))
             {
+                #if TESTING
+                if (gTestRunnerEnabled)
+                    TestRunner_Battle_RecordEffectivenessSound(gBattlerTarget, SE_EFFECTIVE);
+                #endif
                 BtlController_EmitPlaySE(gBattlerTarget, B_COMM_TO_CONTROLLER, SE_EFFECTIVE);
                 MarkBattlerForControllerExec(gBattlerTarget);
             }
@@ -1989,6 +2006,8 @@ static void Cmd_resultmessage(void)
         if (gMultiHitCounter && gMultiHitCounter < GetMoveStrikeCount(gCurrentMove))
         {
             gMultiHitCounter = 0;
+            gBattleStruct->moveDamage[gBattlerTarget] = 0;
+            gSpecialStatuses[gBattlerTarget].damagedByAttack = FALSE;
             *moveResultFlags &= ~MOVE_RESULT_MISSED;
             BattleScriptCall(BattleScript_MultiHitPrintStrings);
             return;
@@ -2424,6 +2443,7 @@ static inline bool32 IgnoreTargetingForMoveEffect(enum MoveEffect moveEffect) //
     case MOVE_EFFECT_INFATUATE_SIDE:
     case MOVE_EFFECT_CONFUSE_SIDE:
     case MOVE_EFFECT_TORMENT_SIDE:
+    case MOVE_EFFECT_CORE_ENFORCER:
         return TRUE;
     default:
         return FALSE;
@@ -8456,6 +8476,18 @@ static void Cmd_animatewildpokemonafterfailedpokeball(void)
 static void Cmd_tryinfatuating(void)
 {
     CMD_ARGS(const u8 *failInstr);
+    enum BattlerId battler;
+
+    battler = IsAbilityOnSide(gBattlerTarget, ABILITY_AROMA_VEIL);
+    if (battler)
+    {
+        gBattlerAbility = battler - 1;
+        BattleScriptPush(cmd->failInstr);
+        gBattlescriptCurrInstr = BattleScript_AromaVeilProtectsRet;
+        gLastUsedAbility = ABILITY_AROMA_VEIL;
+        RecordAbilityBattle(gBattlerAbility, ABILITY_AROMA_VEIL);
+        return;
+    }
 
     if (GetBattlerAbility(gBattlerTarget) == ABILITY_OBLIVIOUS)
     {
@@ -8777,10 +8809,10 @@ static void Cmd_trysetencore(void)
         }
     }
 
-    if ((IsMoveEncoreBanned(gLastMoves[gBattlerTarget]))
-     || i == MAX_MON_MOVES
-     || gLastMoves[gBattlerTarget] == MOVE_NONE
+    if (gLastMoves[gBattlerTarget] == MOVE_NONE
      || gLastMoves[gBattlerTarget] == MOVE_UNAVAILABLE
+     || IsMoveEncoreBanned(gLastMoves[gBattlerTarget])
+     || i == MAX_MON_MOVES
      || gBattleMons[gBattlerTarget].pp[i] == 0
      || gBattleMons[gBattlerTarget].volatiles.encoredMove != MOVE_NONE
      || GetMoveEffect(gChosenMoveByBattler[gBattlerTarget]) == EFFECT_SHELL_TRAP)
@@ -9933,6 +9965,7 @@ static void Cmd_setgastroacid(void)
         if (gBattleMons[gBattlerTarget].volatiles.neutralizingGas)
             gSpecialStatuses[gBattlerTarget].neutralizingGasRemoved = TRUE;
 
+        RemoveRuinAbilityFlags(gBattlerTarget);
         gBattleMons[gBattlerTarget].volatiles.gastroAcid = TRUE;
         gBattlescriptCurrInstr = cmd->nextInstr;
     }
@@ -10011,8 +10044,12 @@ static void Cmd_tryswapabilities(void)
 {
     CMD_ARGS(const u8 *failInstr);
 
-    if (gAbilitiesInfo[gBattleMons[gBattlerAttacker].ability].cantBeSwapped
-      || gAbilitiesInfo[gBattleMons[gBattlerTarget].ability].cantBeSwapped)
+    if (gAbilitiesInfo[gBattleMons[gBattlerAttacker].ability].cantBeSwapped)
+    {
+        RecordAbilityBattle(gBattlerAttacker, gBattleMons[gBattlerAttacker].ability);
+        gBattlescriptCurrInstr = cmd->failInstr;
+    }
+    else if (gAbilitiesInfo[gBattleMons[gBattlerTarget].ability].cantBeSwapped)
     {
         RecordAbilityBattle(gBattlerTarget, gBattleMons[gBattlerTarget].ability);
         gBattlescriptCurrInstr = cmd->failInstr;
@@ -13237,9 +13274,30 @@ void BS_JumpIfIntimidateAbilityPrevented(void)
         }
         break;
     case ABILITY_GUARD_DOG:
-        hasAbility = TRUE;
-        gBattlescriptCurrInstr = BattleScript_IntimidateInReverse;
+    {
+        bool32 blockedByFlowerVeil = FALSE;
+        u32 flowerVeilBattler = IsFlowerVeilProtected(gBattlerTarget);
+
+        if (flowerVeilBattler)
+        {
+            flowerVeilBattler--;
+            if (gBattleMons[flowerVeilBattler].speed > gBattleMons[gBattlerTarget].speed)
+                blockedByFlowerVeil = TRUE;
+        }
+
+        if (!(gSideTimers[GetBattlerSide(gBattlerTarget)].mistTimer)
+         && CompareStat(gBattlerTarget, STAT_ATK, MIN_STAT_STAGE, CMP_GREATER_THAN, ability)
+         && !blockedByFlowerVeil)
+        {
+            hasAbility = TRUE;
+            gBattlescriptCurrInstr = BattleScript_IntimidateInReverse;
+        }
+        else
+        {
+            gBattlescriptCurrInstr = cmd->nextInstr;
+        }
         break;
+    }
     default:
         gBattlescriptCurrInstr = cmd->nextInstr;
         break;
@@ -13270,15 +13328,15 @@ void BS_TryFlingHoldEffect(void)
     NATIVE_ARGS();
     enum HoldEffect holdEffect = GetItemHoldEffect(gBattleStruct->flingItem);
 
-    if (GetItemPocket(gBattleStruct->flingItem) == POCKET_BERRIES)
-    {
-        gBattlescriptCurrInstr = BattleScript_EffectFlingConsumeBerry;
-        return;
-    }
-
     if (IsMoveEffectBlockedByTarget(GetBattlerAbility(gBattlerTarget)))
     {
         gBattlescriptCurrInstr = BattleScript_FlingBlockedByShieldDust;
+        return;
+    }
+
+    if (GetItemPocket(gBattleStruct->flingItem) == POCKET_BERRIES)
+    {
+        gBattlescriptCurrInstr = BattleScript_EffectFlingConsumeBerry;
         return;
     }
 
@@ -14071,8 +14129,12 @@ void BS_SetLuckyChant(void)
 void BS_TryEntrainment(void)
 {
     NATIVE_ARGS(const u8 *failInstr);
-    if (gAbilitiesInfo[gBattleMons[gBattlerAttacker].ability].cantBeCopied
-        || gAbilitiesInfo[gBattleMons[gBattlerTarget].ability].cantBeOverwritten)
+    if (gAbilitiesInfo[gBattleMons[gBattlerAttacker].ability].cantBeCopied)
+    {
+        RecordAbilityBattle(gBattlerAttacker, gBattleMons[gBattlerAttacker].ability);
+        gBattlescriptCurrInstr = cmd->failInstr;
+    }
+    else if (gAbilitiesInfo[gBattleMons[gBattlerTarget].ability].cantBeOverwritten)
     {
         RecordAbilityBattle(gBattlerTarget, gBattleMons[gBattlerTarget].ability);
         gBattlescriptCurrInstr = cmd->failInstr;
