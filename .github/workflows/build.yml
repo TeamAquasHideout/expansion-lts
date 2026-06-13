@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - master
-      - 1.13
+      - 1.15_lts*
   pull_request:
 
 env:
