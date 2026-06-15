@@ -258,7 +258,11 @@ enum RandomTag
 #define RandomPercentage(tag, t) \
     ({ \
         u32 r; \
-        if (t <= 0) \
+        if_comptime (t == 50) \
+        { \
+            r = RandomUniform(tag, FALSE, TRUE); \
+        } \
+        else if (t <= 0) \
         { \
             r = FALSE; \
         } \
